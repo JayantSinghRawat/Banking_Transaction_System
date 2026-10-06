@@ -1,5 +1,6 @@
 const transactionModel = require("../models/transaction.model")
 const ledgerModel = require("../models/ledger.model")
+const emailService = require("../services/email.service")
 
 /**
  * - Create a new transaction
@@ -15,3 +16,12 @@ const ledgerModel = require("../models/ledger.model")
  * 9. Commit MongoDB session
  * 10. Send email notification
  */
+
+async function transactionController(req,res){
+    const {fromAccount, toAccount, amount, idempotencyKey} = req.body;
+}
+
+
+module.exports = {
+    transactionController
+}

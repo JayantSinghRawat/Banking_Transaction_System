@@ -33,7 +33,7 @@ const transactionSchema = new mongoose.Schema({
         unique:true
     }
 },{
-    timestamps
+    timestamps:true
 })
 
 const transactionModel =  mongoose.model("transaction",transactionSchema)
