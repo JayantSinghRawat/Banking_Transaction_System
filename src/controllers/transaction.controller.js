@@ -88,8 +88,11 @@ async function transactionController(req,res){
         })
     }
 
-    
+    /**
+     * 4. Derive sender balance from ledger
+     */
 
+    const balance = await fromAccount.getBalance()
 
 
 }
