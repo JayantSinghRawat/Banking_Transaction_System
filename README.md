@@ -7,13 +7,16 @@
 [![Live Swagger Docs](https://img.shields.io/badge/Live%20Docs-Swagger%203.0-85EA2D?logo=swagger)](https://event-sourced-ledger-cng1.onrender.com/api-docs/)
 [![License: ISC](https://img.shields.io/badge/License-ISC-blue.svg)](https://opensource.org/licenses/ISC)
 
-> 🚀 **Live Deployment on Render**:
+> 🚀 **Live Demo on Render**:
 > - **Base URL:** [https://event-sourced-ledger-cng1.onrender.com](https://event-sourced-ledger-cng1.onrender.com)
 > - **Interactive Swagger UI:** [https://event-sourced-ledger-cng1.onrender.com/api-docs/](https://event-sourced-ledger-cng1.onrender.com/api-docs/)
 
-A production-grade, highly reliable banking transaction backend built on **Event Sourcing**, **Double-Entry Bookkeeping**, and **Strict ACID Transactions**. 
+> ⚠️ **Project Status & Disclaimer**:  
+> This project is an **architectural proof-of-concept (PoC) and learning implementation** built to explore how financial ledgers, event sourcing, double-entry bookkeeping, and MongoDB ACID transactions work in Node.js. It is intended for educational and portfolio demonstration purposes, **not for real financial production use**. See [Production Considerations](#-production-considerations--known-limitations) for details.
 
-Unlike naive banking applications that store a mutable `balance` field susceptible to race conditions and audit loss, this system stores **immutable financial events**. Account balances are dynamically derived from an append-only ledger, ensuring cryptographic auditability, idempotency against network retries, and strict consistency.
+An educational backend project exploring **Event Sourcing**, **Double-Entry Bookkeeping**, and **ACID Transactions** in a banking context. 
+
+Instead of naive architectures that maintain a mutable `balance` column, this system explores how real-world ledgers model financial movements as **immutable events**—calculating account balances dynamically from an append-only log while handling idempotency and transaction atomicity.
 
 ---
 
@@ -29,8 +32,8 @@ Unlike naive banking applications that store a mutable `balance` field susceptib
 - [Environment Variables](#-environment-variables)
 - [Getting Started](#-getting-started)
 - [API Walkthrough & Examples](#-api-walkthrough--examples)
-- [Security & Invariants](#-security--invariants)
-- [Roadmap & Enhancements](#-roadmap--enhancements)
+- [Security & Core Invariants](#-security--core-invariants)
+- [Production Considerations & Limitations](#-production-considerations--known-limitations)
 
 ---
 
@@ -156,7 +159,7 @@ sequenceDiagram
 ## 🚀 API Reference
 
 Interactive API documentation and schema playgrounds are available at:  
-- **Live Production (Render):** 👉 [https://event-sourced-ledger-cng1.onrender.com/api-docs/](https://event-sourced-ledger-cng1.onrender.com/api-docs/)
+- **Live Demo (Render):** 👉 [https://event-sourced-ledger-cng1.onrender.com/api-docs/](https://event-sourced-ledger-cng1.onrender.com/api-docs/)
 - **Local Development:** 👉 `http://localhost:3000/api-docs`
 
 ### Authentication (`/api/auth`)
@@ -246,7 +249,7 @@ cp .env.example .env # Or create .env manually
 # Development Mode (auto-restart with Nodemon)
 npm run dev
 
-# Production Mode
+# Start Server
 npm start
 ```
 The server will boot up on `http://localhost:3000`.  
@@ -315,25 +318,44 @@ curl -X POST http://localhost:3000/api/transactions \
 
 ---
 
-## 🔒 Security & Invariants
+## 🛡️ Security & Core Invariants
 
-1. **Strict Immutability:** No financial records in the `Ledger` can ever be updated or purged via Mongoose queries.
-2. **Double-Spend Prevention:** ACID transactions combined with unique idempotency keys guarantee money cannot be created or duplicated during network retries.
-3. **Password Security:** Salted bcrypt hashing with hidden password projection on user queries.
-4. **Token Invalidation:** Stateless tokens are actively revoked upon logout and purged automatically via TTL indices.
+This prototype implements the following foundational patterns:
+1. **Append-Only Ledger:** Schema-level middleware blocks destructive mutations (`updateOne`, `deleteMany`, etc.) on ledger entries.
+2. **Double-Entry Parity:** Valid transfers create equal-and-opposite `DEBIT` and `CREDIT` records.
+3. **Idempotency Guard:** `idempotencyKey` prevents duplicate transaction entries during client-side retries.
+4. **Multi-Document ACID Rollback:** Uses MongoDB transaction sessions so incomplete transfers abort cleanly.
+5. **Auth & Token Lifecycle:** Passwords hashed with bcrypt; JWT blacklisting with MongoDB TTL handles logout.
 
 ---
 
-## 🗺️ Roadmap & Enhancements
+## ⚠️ Production Considerations & Known Limitations
 
-Key opportunities for future development:
-- [ ] **Atomic Balance Locking:** Run balance verification within the active MongoDB transaction session to eliminate race conditions under concurrent requests.
-- [ ] **Account Ownership Authorization:** Ensure `fromAccount` in transfers strictly belongs to `req.user`.
-- [ ] **Integer/Cents Currency Model:** Transition amounts to integer cents/paise or `Decimal128` to avoid IEEE 754 floating-point rounding anomalies.
-- [ ] **Ledger Snapshots / Checkpointing:** Cache periodic account balance snapshots to maintain sub-millisecond query latency as ledger entries scale.
-- [ ] **Message Queue for Notifications:** Offload Gmail dispatch to an asynchronous background worker (e.g., BullMQ / Redis) to decouple email delivery latency from transaction response time.
-- [ ] **Transaction History & Statement Endpoints:** Provide paginated statements with ledger audit logs for clients.
-- [ ] **Automated Test Suite:** Integration tests covering race conditions, double-spend attempts, and idempotency guarantees using Jest and Supertest.
+This repository was designed as an **architectural proof-of-concept (PoC)** to explore financial data modeling. In a commercial banking engine, the following distributed systems considerations would need to be addressed:
+
+### 1. Concurrency Locking & Race Conditions (Double-Spending)
+- **Current PoC State:** Sender balance is derived via `getBalance()` *before* starting the MongoDB transaction session.
+- **Production Requirement:** Under concurrent requests with different idempotency keys, an account could double-spend. Production systems require pessimistic locking (e.g., locking the account record within the transaction session) or conditional atomic operations to prevent balance races.
+
+### 2. Authorization & Ownership Validation
+- **Current PoC State:** The transfer controller validates that `fromAccount` exists and is active, but does not verify `fromAccount.user == req.user._id`.
+- **Production Requirement:** Must enforce strict tenant/ownership checks so users can only debit accounts they own.
+
+### 3. Financial Numeric Precision (Floating Point Drift)
+- **Current PoC State:** Amounts are stored as standard JavaScript `Number` (IEEE 754 64-bit float).
+- **Production Requirement:** Floating point math introduces precision errors (e.g., `0.1 + 0.2 !== 0.3`). Real financial software stores currency in the smallest sub-unit (integer cents/paise) or uses `Decimal128`.
+
+### 4. Asynchronous Notifications & Outbox Pattern
+- **Current PoC State:** Gmail OAuth dispatch is awaited synchronously inside the HTTP handler after committing the transaction.
+- **Production Requirement:** Third-party network latency or rate limits shouldn't delay payment responses. Production systems use the **Transactional Outbox Pattern** with a message broker (e.g., BullMQ, RabbitMQ, Kafka) to handle async email jobs.
+
+### 5. Ledger Scaling & Snapshotting
+- **Current PoC State:** Account balance aggregates every historical ledger entry on the fly.
+- **Production Requirement:** As ledger entries grow into millions, raw aggregation becomes slow. Production engines store periodic balance checkpoints (snapshots) and only compute the delta since the last snapshot.
+
+### 6. Automated Testing & Reliability
+- **Current PoC State:** No automated test coverage.
+- **Production Requirement:** A comprehensive test suite (Jest/Supertest) simulating race conditions, concurrent double-spend attempts, network failures, and ledger immutability enforcement.
 
 ---
 
