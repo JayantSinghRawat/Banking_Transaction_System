@@ -1,45 +1,81 @@
 require('dotenv').config();
 
-const nodemailer = require('nodemailer');
+const { google } = require("googleapis");
 
-const transporter = nodemailer.createTransport({
-  host: 'smtp.gmail.com',
-  port: 587,
-  secure: false,
-  auth: {
-    type: 'OAuth2',
-    user: process.env.EMAIL_USER,
-    clientId: process.env.CLIENT_ID,
-    clientSecret: process.env.CLIENT_SECRET,
-    refreshToken: process.env.REFRESH_TOKEN,
-  },
+const oauth2Client = new google.auth.OAuth2(
+    process.env.CLIENT_ID,
+    process.env.CLIENT_SECRET
+);
+
+oauth2Client.setCredentials({
+    refresh_token: process.env.REFRESH_TOKEN
 });
 
-// Verify the connection configuration
-transporter.verify((error) => {
-    if (error) {
-        console.error("EMAIL SERVER ERROR:", error);
-    } else {
-        console.log("Email server is ready to send messages");
-    }
+const gmail = google.gmail({
+    version: "v1",
+    auth: oauth2Client
 });
+
+function createRawEmail(to, subject, text, html) {
+    const email = [
+        `From: Banking Ledger <${process.env.EMAIL_USER}>`,
+        `To: ${to}`,
+        `Subject: ${subject}`,
+        "MIME-Version: 1.0",
+        'Content-Type: multipart/alternative; boundary="boundary"',
+        "",
+        "--boundary",
+        "Content-Type: text/plain; charset=UTF-8",
+        "",
+        text,
+        "",
+        "--boundary",
+        "Content-Type: text/html; charset=UTF-8",
+        "",
+        html,
+        "",
+        "--boundary--"
+    ].join("\r\n");
+
+    return Buffer.from(email)
+        .toString("base64")
+        .replace(/\+/g, "-")
+        .replace(/\//g, "_")
+        .replace(/=+$/, "");
+}
 
 // Function to send email
 const sendEmail = async (to, subject, text, html) => {
-  try {
-    const info = await transporter.sendMail({
-      from: `"Banking Ledger" <${process.env.EMAIL_USER}>`, // sender address
-      to, // list of receivers
-      subject, // Subject line
-      text, // plain text body
-      html, // html body
-    });
+    try {
+        const raw = createRawEmail(
+            to,
+            subject,
+            text,
+            html
+        );
 
-    console.log('Message sent: %s', info.messageId);
-    console.log('Preview URL: %s', nodemailer.getTestMessageUrl(info));
-  } catch (error) {
-    console.error('Error sending email:', error);
-  }
+        const response = await gmail.users.messages.send({
+            userId: "me",
+            requestBody: {
+                raw: raw
+            }
+        });
+
+        console.log(
+            "Message sent:",
+            response.data.id
+        );
+
+        return response.data;
+
+    } catch (error) {
+        console.error(
+            "Gmail API error:",
+            error.response?.data || error.message
+        );
+
+        throw error;
+    }
 };
 
 
@@ -57,16 +93,16 @@ async function sendRegistrationEmail(userEmail,name){
 
 async function sendTransactionEmail(userEmail,name,amount,toAccount){
   const subject = 'Transaction successful!';
-  const text = `Hello ${name}, \n\nYour transaction of $${amount} to account ${toAccount} was successful. \n\nBest regards,\nThe Banking Ledger Team`;
-  const html = `<p>Hello ${name},</p><p>Your transaction of $${amount} to account ${toAccount} was sucessful.</p><p>Best regards,<br>The Banking Ledger Team</p>`;
+  const text = `Hello ${name}, \n\nYour transaction of ₹${amount} to account ${toAccount} was successful. \n\nBest regards,\nThe Banking Ledger Team`;
+  const html = `<p>Hello ${name},</p><p>Your transaction of ₹${amount} to account ${toAccount} was sucessful.</p><p>Best regards,<br>The Banking Ledger Team</p>`;
 
   await sendEmail(userEmail,subject, text, html);
 }
 
 async function sendTransactionFailureEmail(userEmail, name, amount, toAccount) {
   const subject = 'Transaction Failed!';
-  const text = `Hello ${name},\n\nWe regret to inform you that your transaction of $${amount} to account ${toAccount} has failed.\n\nBest regards,\nThe Banking Ledger Team`;
-  const html = `<p>Hello ${name},</p><p>We regret to inform you that your transaction of $${amount} to account ${toAccount} has failed.</p><p>Best regards,<br>The Banking Ledger Team</p>`;
+  const text = `Hello ${name},\n\nWe regret to inform you that your transaction of ₹${amount} to account ${toAccount} has failed.\n\nBest regards,\nThe Banking Ledger Team`;
+  const html = `<p>Hello ${name},</p><p>We regret to inform you that your transaction of ₹${amount} to account ${toAccount} has failed.</p><p>Best regards,<br>The Banking Ledger Team</p>`;
 
   await sendEmail(userEmail, subject, text, html);
 }
