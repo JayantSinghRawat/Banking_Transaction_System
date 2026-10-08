@@ -56,7 +56,7 @@ async function createTransaction(req,res){
     })
 
     if(isTransactionAlreadyExists){
-        if(isTrasactionAlreadyExists.status === "COMPLETED"){
+        if(isTransactionAlreadyExists.status === "COMPLETED"){
             return res.status(200).json({
                 message:"Transaction already processed",
                 transaction: isTransactionAlreadyExists
@@ -93,48 +93,57 @@ async function createTransaction(req,res){
      * 4. Derive sender balance from ledger
      */
 
-    const balance = await fromAccount.getBalance()
+    const balance = await fromUserAccount.getBalance()
 
     if(balance< amount){
         return res.status(400).json({
             message:`Insufficient balance. Current balance is ${balance}.Requested amount is this ${amount}`
         })
     }
-
+    let transaction;
     /**
      * 5. Create Transaction(PENDING)
      */
-
+    try{
     const session = await mongoose.startSession()
     session.startTransaction()
 
-    const transaction = await transactionModel.create({
+    transaction = (await transactionModel.create([{
         fromAccount,
         toAccount,
         amount,
         idempotencyKey,
         status:"PENDING"
-    },{session})
+    }],{session}))[0]
 
-    const debitLedgerEntry = await ledgerModel.create({
+    const debitLedgerEntry = await ledgerModel.create([{
         account:fromAccount,
         amount:amount,
         transaction:transaction._id,
         type:"DEBIT",
-    },{session})
-    const creditLedgerEntry = await ledgerModel.create({
+    }],{session})
+    const creditLedgerEntry = await ledgerModel.create([{
         account:toAccount,
         amount:amount,
         transaction:transaction._id,
         type:"CREDIT",
-    },{session})
+    }],{session})
 
-    transaction.status = "COMPLETED"
-    await transaction.save({session})
+    // transaction.status = "COMPLETED"
+    // await transaction.save({session})
+    await transactionModel.findOneAndUpdate(
+        {_id:transaction._id},
+        {status:"COMPLETED"},
+        {session}
+    )
 
     await session.commitTransaction()
     session.endSession()
-
+    }catch(error){
+        return res.status(400).json({
+            message:"Transaction is pending due to an issue please retry after some time"
+        })
+    }
     /**
      * 10. Send email notification
      */
